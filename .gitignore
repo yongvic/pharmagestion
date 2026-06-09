@@ -1,0 +1,62 @@
+# ── Python / Django ──
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/db.sqlite3
+backend/backend.log
+backend/build/
+backend/dist/
+backend/staticfiles/
+backend/media/
+backend/.env
+backend/*.spec
+backend/test_data/
+backend/test_data_dir/
+
+# ── Node / Frontend ──
+node_modules/
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Electron / Build ──
+release/
+out/
+*.blockmap
+builder-debug.yml
+
+# ── Environnement ──
+.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# ── IDE / OS ──
+.vscode/
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# ── Logs ──
+*.log
+logs/
+
+# ── Cursor / outils locaux ──
+skills/
+.cursor/
+agent-transcripts/
+
+# ── Fichiers temporaires ──
+*.tmp
+*.temp
+.cache/
+*_old.txt

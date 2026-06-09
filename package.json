@@ -1,0 +1,54 @@
+{
+  "name": "pharmagestion",
+  "version": "2.0.2",
+  "description": "PharmaGestion — Logiciel premium de gestion de pharmacie",
+  "author": "PharmaGestion",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev:backend": "cd backend && venv\\Scripts\\python run_backend.py runserver 127.0.0.1:8765",
+    "setup": "powershell -ExecutionPolicy Bypass -File scripts/setup-backend.ps1",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "concurrently -k \"npm run dev:backend\" \"npm run dev:frontend\" \"wait-on http://127.0.0.1:8765/api/health/ http://localhost:5173 && electron .\"",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && venv\\Scripts\\python build_backend.py",
+    "build": "npm run build:backend && npm run build:frontend",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "postinstall": "cd frontend && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^35.0.1",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.pharmagestion.app",
+    "productName": "PharmaGestion",
+    "directories": {
+      "output": "release"
+    },
+    "asar": true,
+    "files": [
+      "electron/**/*",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/dist/backend.exe",
+        "to": "backend/backend.exe"
+      }
+    ],
+    "win": {
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "PharmaGestion"
+    }
+  }
+}
