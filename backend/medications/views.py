@@ -66,7 +66,7 @@ class MedicationViewSet(viewsets.ModelViewSet):
     @action(
         detail=False,
         methods=['post'],
-        url_path='import',
+        url_path='bulk-import',
         parser_classes=[MultiPartParser, FormParser],
     )
     def import_medications(self, request):
@@ -83,7 +83,7 @@ class MedicationViewSet(viewsets.ModelViewSet):
 
         return Response(results, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['get'], url_path='import-template')
+    @action(detail=False, methods=['get'], url_path='download-template')
     def import_template(self, request):
         file_format = request.query_params.get('format', 'xlsx').lower()
         categories = Category.objects.order_by('name')

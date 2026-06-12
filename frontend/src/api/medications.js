@@ -15,13 +15,11 @@ export const importMedications = (file, updateExisting = true) => {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('update_existing', updateExisting ? 'true' : 'false');
-  return api.post('medications/import/', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  return api.post('medications/bulk-import/', formData);
 };
 
 export const downloadImportTemplate = async (format = 'xlsx') => {
-  const response = await api.get(`medications/import-template/?format=${format}`, {
+  const response = await api.get(`medications/download-template/?format=${format}`, {
     responseType: 'blob',
   });
   const ext = format === 'csv' ? 'csv' : 'xlsx';
