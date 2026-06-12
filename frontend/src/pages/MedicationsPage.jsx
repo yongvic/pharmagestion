@@ -312,7 +312,8 @@ const MedicationsPage = () => {
             <p className="text-sm font-semibold text-pharmacy-800">Classification par catégorie</p>
             <p className="text-sm text-slate-600">
               Chaque produit doit avoir une <strong>catégorie</strong> (colonne <code className="text-xs bg-white px-1 rounded">categorie</code> obligatoire).
-              Utilisez un nom existant ou une nouvelle catégorie sera créée automatiquement.
+              Les fichiers inventaire hôpital <strong>MEG / CHP / NTG</strong> sont reconnus automatiquement
+              (colonnes DESIGATTION, PEREMP., CDMT — catégories LES COMPRIMES, INJECTABLES, etc.).
             </p>
             {categories.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
@@ -380,6 +381,11 @@ const MedicationsPage = () => {
 
           {importResult && (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+              {importResult.format === 'meg_chp_inventaire' && (
+                <p className="text-xs font-semibold text-pharmacy-700 bg-pharmacy-50 border border-pharmacy-100 rounded-lg px-3 py-2">
+                  Format inventaire MEG/CHP détecté — feuille importée : <strong>{importResult.sheet}</strong>
+                </p>
+              )}
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
                 <div><p className="text-2xl font-black text-emerald-600">{importResult.created}</p><p className="text-xs text-slate-500">Créés</p></div>
                 <div><p className="text-2xl font-black text-pharmacy-600">{importResult.updated}</p><p className="text-xs text-slate-500">Mis à jour</p></div>
