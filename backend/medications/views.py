@@ -1,11 +1,16 @@
 from django.db.models import Count
-from rest_framework import viewsets, filters
+from django.http import HttpResponse
+from rest_framework import viewsets, filters, status
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
 from django_filters import rest_framework as django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from users.permissions import IsAdminOrReadOnly, IsStaffRole
 from .models import Category, Medication
 from .serializers import CategorySerializer, MedicationSerializer
+from .import_service import import_medications_from_file, build_template_csv, build_template_xlsx
 
 
 class MedicationFilter(django_filters.FilterSet):
@@ -54,6 +59,47 @@ class MedicationViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name', 'selling_price', 'stock_quantity', 'expiry_date']
 
     def get_permissions(self):
-        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'import_medications', 'import_template'):
             return [IsAdminOrReadOnly()]
         return [IsStaffRole()]
+
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='import',
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def import_medications(self, request):
+        upload = request.FILES.get('file')
+        if not upload:
+            raise ValidationError({'file': 'Aucun fichier fourni.'})
+
+        update_existing = str(request.data.get('update_existing', 'true')).lower() in ('1', 'true', 'yes', 'on')
+
+        try:
+            results = import_medications_from_file(upload, upload.name, update_existing=update_existing)
+        except ValueError as exc:
+            raise ValidationError({'detail': str(exc)}) from exc
+
+        return Response(results, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='import-template')
+    def import_template(self, request):
+        file_format = request.query_params.get('format', 'xlsx').lower()
+        categories = Category.objects.order_by('name')
+        if file_format == 'csv':
+            content = build_template_csv()
+            response = HttpResponse(content, content_type='text/csv; charset=utf-8')
+            response['Content-Disposition'] = 'attachment; filename="modele_medicaments.csv"'
+            return response
+
+        if file_format == 'xlsx':
+            content = build_template_xlsx(categories)
+            response = HttpResponse(
+                content,
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
+            response['Content-Disposition'] = 'attachment; filename="modele_medicaments.xlsx"'
+            return response
+
+        raise ValidationError({'format': 'Format invalide. Utilisez csv ou xlsx.'})

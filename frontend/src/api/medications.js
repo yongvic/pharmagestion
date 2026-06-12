@@ -10,3 +10,27 @@ export const getCategories = (params) => api.get('categories/', { params });
 export const createCategory = (data) => api.post('categories/', data);
 export const updateCategory = (id, data) => api.patch(`categories/${id}/`, data);
 export const deleteCategory = (id) => api.delete(`categories/${id}/`);
+
+export const importMedications = (file, updateExisting = true) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('update_existing', updateExisting ? 'true' : 'false');
+  return api.post('medications/import/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+export const downloadImportTemplate = async (format = 'xlsx') => {
+  const response = await api.get(`medications/import-template/?format=${format}`, {
+    responseType: 'blob',
+  });
+  const ext = format === 'csv' ? 'csv' : 'xlsx';
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `modele_medicaments.${ext}`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};

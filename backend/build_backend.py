@@ -41,6 +41,7 @@ HIDDEN_IMPORTS = [
     'rest_framework',
     'django_filters',
     'corsheaders',
+    'openpyxl',
 ]
 
 # Build command
@@ -58,6 +59,7 @@ cmd = [
     '--collect-all', 'rest_framework',
     '--collect-all', 'django_filters',
     '--collect-all', 'corsheaders',
+    '--collect-all', 'openpyxl',
 ]
 
 # Add data files
