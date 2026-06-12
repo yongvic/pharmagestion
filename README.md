@@ -2,7 +2,7 @@
 
 Application desktop de gestion de pharmacie — stock, ventes, assurances et équipe. Fonctionne **100 % en local**, sans connexion internet.
 
-![Version](https://img.shields.io/badge/version-2.0.2-blue)
+![Version](https://img.shields.io/badge/version-2.0.3-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
 ![Stack](https://img.shields.io/badge/stack-Electron%20%2B%20React%20%2B%20Django-61DAFB)
 
@@ -13,6 +13,7 @@ Application desktop de gestion de pharmacie — stock, ventes, assurances et éq
 | Module | Description |
 |--------|-------------|
 | **Médicaments** | Catalogue, recherche, code-barres, alertes stock |
+| **Catégories** | Classification des produits (CRUD admin, compteur par catégorie) |
 | **Stock** | Entrées, sorties, ajustements, historique |
 | **POS** | Vente directe ou préparation de commande |
 | **Caisse** | Validation et encaissement des commandes en attente |
@@ -112,7 +113,7 @@ Démarre automatiquement :
 npm run dist:win
 ```
 
-Génère : `release/PharmaGestion Setup 2.0.2.exe` (~110 Mo)
+Génère : `release/PharmaGestion Setup 2.0.3.exe` (~110 Mo)
 
 L'installateur inclut le backend compilé (`backend.exe`) — **aucune dépendance** requise sur le PC client.
 

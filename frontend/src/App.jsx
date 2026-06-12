@@ -10,6 +10,7 @@ import CashierPage from './pages/CashierPage';
 import InventoryPage from './pages/InventoryPage';
 import DashboardPage from './pages/DashboardPage';
 import InsurancePage from './pages/InsurancePage';
+import CategoriesPage from './pages/CategoriesPage';
 import UsersPage from './pages/UsersPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -50,6 +51,7 @@ function App() {
                   <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
                   <Route path="/pos" element={<ProtectedRoute roles={['PHARMACIST', 'CASHIER', 'ADMIN']}><POSPage /></ProtectedRoute>} />
                   <Route path="/cashier" element={<ProtectedRoute roles={['CASHIER', 'ADMIN']}><CashierPage /></ProtectedRoute>} />
+                  <Route path="/categories" element={<ProtectedRoute roles={['ADMIN']}><CategoriesPage /></ProtectedRoute>} />
                   <Route path="/insurance" element={<ProtectedRoute roles={['ADMIN']}><InsurancePage /></ProtectedRoute>} />
                   <Route path="/users" element={<ProtectedRoute roles={['ADMIN']}><UsersPage /></ProtectedRoute>} />
                   <Route path="/settings" element={<ProtectedRoute roles={['ADMIN']}><SettingsPage /></ProtectedRoute>} />

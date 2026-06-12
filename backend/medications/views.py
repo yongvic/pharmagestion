@@ -1,4 +1,6 @@
+from django.db.models import Count
 from rest_framework import viewsets, filters
+from rest_framework.exceptions import ValidationError
 from django_filters import rest_framework as django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from users.permissions import IsAdminOrReadOnly, IsStaffRole
@@ -23,9 +25,23 @@ class MedicationFilter(django_filters.FilterSet):
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
-    queryset = Category.objects.all()
+    queryset = Category.objects.annotate(medication_count=Count('medications')).order_by('name')
     serializer_class = CategorySerializer
     permission_classes = [IsAdminOrReadOnly]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['name']
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.medications.exists():
+            count = instance.medications.count()
+            raise ValidationError({
+                'detail': (
+                    f'Cette catégorie contient {count} médicament(s). '
+                    'Réassignez-les avant suppression.'
+                ),
+            })
+        return super().destroy(request, *args, **kwargs)
 
 
 class MedicationViewSet(viewsets.ModelViewSet):

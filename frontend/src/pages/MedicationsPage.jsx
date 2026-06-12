@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, Filter, FileEdit, Trash2, ChevronLeft, ChevronRight, Save, Barcode, Loader2, AlertCircle } from 'lucide-react';
-import { getMedications, createMedication, updateMedication, deleteMedication, getCategories } from '../api/medications';
-import { Card, Button, DoubleBezel, Modal, Input, Select, cn } from '../components/UI';
+import { getMedications, createMedication, updateMedication, deleteMedication, getCategories, createCategory } from '../api/medications';
+import { Card, Button, DoubleBezel, Modal, Input, cn } from '../components/UI';
 import { useToast, getErrorMessage } from '../components/Toast';
 import useAuthStore from '../store/useAuthStore';
 import { formatCurrency, formatDate } from '../utils/format';
@@ -13,6 +13,8 @@ const emptyForm = {
   purchase_price: '', selling_price: '', stock_quantity: 0,
   min_stock: 5, expiry_date: '', barcode: '',
 };
+
+const emptyCategoryForm = { name: '', description: '' };
 
 const MedicationsPage = () => {
   const { isAdmin } = useAuthStore();
@@ -30,6 +32,8 @@ const MedicationsPage = () => {
   const [editing, setEditing] = useState(null);
   const [formData, setFormData] = useState(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -59,6 +63,18 @@ const MedicationsPage = () => {
       queryClient.invalidateQueries({ queryKey: ['medications'] });
       setDeleteTarget(null);
       toast('Médicament supprimé.', 'success');
+    },
+    onError: (err) => toast(getErrorMessage(err), 'error'),
+  });
+
+  const createCategoryMutation = useMutation({
+    mutationFn: createCategory,
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      setFormData((prev) => ({ ...prev, category: String(res.data.id) }));
+      setShowCategoryModal(false);
+      setCategoryForm(emptyCategoryForm);
+      toast('Catégorie créée et sélectionnée.', 'success');
     },
     onError: (err) => toast(getErrorMessage(err), 'error'),
   });
@@ -155,10 +171,29 @@ const MedicationsPage = () => {
             <div className="col-span-2"><Input label="Nom commercial" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} /></div>
             <Input label="Nom générique" value={formData.generic_name} onChange={(e) => setFormData({ ...formData, generic_name: e.target.value })} />
             <Input label="Dosage" value={formData.dosage} onChange={(e) => setFormData({ ...formData, dosage: e.target.value })} placeholder="500mg" />
-            <Select label="Catégorie" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })}>
-              <option value="">Sélectionner...</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2 tracking-wider">Catégorie</label>
+              <div className="flex gap-2">
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="input-field cursor-pointer flex-1"
+                >
+                  <option value="">Sélectionner...</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                {isAdmin() && (
+                  <button
+                    type="button"
+                    onClick={() => { setCategoryForm(emptyCategoryForm); setShowCategoryModal(true); }}
+                    className="shrink-0 px-3 py-2 border border-slate-200 rounded-xl text-sm font-medium text-pharmacy-600 hover:bg-pharmacy-50 transition-colors"
+                    title="Nouvelle catégorie"
+                  >
+                    <Plus size={18} />
+                  </button>
+                )}
+              </div>
+            </div>
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Code-barres</label>
               <div className="relative"><Barcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
@@ -185,6 +220,35 @@ const MedicationsPage = () => {
             <Button variant="outline" className="flex-1" onClick={() => setDeleteTarget(null)}>Annuler</Button>
             <Button variant="danger" className="flex-1" onClick={() => deleteMutation.mutate(deleteTarget.id)} disabled={deleteMutation.isPending}>Supprimer</Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal open={showCategoryModal} onClose={() => setShowCategoryModal(false)} title="Nouvelle catégorie" size="sm">
+        <div className="p-6 space-y-4">
+          <Input
+            label="Nom"
+            value={categoryForm.name}
+            onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
+            placeholder="Ex. Analgésiques"
+          />
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Description</label>
+            <textarea
+              value={categoryForm.description}
+              onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })}
+              className="input-field"
+              rows={2}
+              placeholder="Optionnel"
+            />
+          </div>
+          <Button
+            className="w-full"
+            icon={createCategoryMutation.isPending ? Loader2 : Plus}
+            onClick={() => createCategoryMutation.mutate(categoryForm)}
+            disabled={!categoryForm.name.trim() || createCategoryMutation.isPending}
+          >
+            Créer et sélectionner
+          </Button>
         </div>
       </Modal>
     </div>

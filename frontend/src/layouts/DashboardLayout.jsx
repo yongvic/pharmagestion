@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Pill, Package, Users, ShieldCheck, Settings, LogOut, Search, Banknote, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, Pill, Package, Users, ShieldCheck, Settings, LogOut, Search, Banknote, ShoppingCart, Tags } from 'lucide-react';
 import { cn } from '../components/UI';
 import PharmacyLogo3D from '../components/PharmacyLogo3D';
 import NotificationBell from '../components/NotificationBell';
@@ -35,6 +35,7 @@ const DashboardLayout = ({ children }) => {
     { to: '/inventory', icon: Package, label: 'Stock', roles: ['ADMIN', 'PHARMACIST', 'CASHIER'] },
     { to: '/pos', icon: ShoppingCart, label: isPharmacist() ? 'Préparation' : 'Vente (POS)', roles: ['ADMIN', 'PHARMACIST', 'CASHIER'] },
     { to: '/cashier', icon: Banknote, label: 'Caisse', roles: ['ADMIN', 'CASHIER'] },
+    { to: '/categories', icon: Tags, label: 'Catégories', roles: ['ADMIN'] },
     { to: '/insurance', icon: ShieldCheck, label: 'Assurances', roles: ['ADMIN'] },
     { to: '/users', icon: Users, label: 'Utilisateurs', roles: ['ADMIN'] },
     { to: '/settings', icon: Settings, label: 'Paramètres', roles: ['ADMIN'] },
