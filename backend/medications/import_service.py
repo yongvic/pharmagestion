@@ -108,6 +108,10 @@ MEG_SECTION_FORMS = {
     'SIROP': 'Sirop',
     'CONSOMMABLE': 'Consommable',
 }
+MEG_KNOWN_SECTIONS = {
+    'LES CONPRIMES', 'INJECTABLES', 'INJECTABLE', 'LES SIROPS',
+    'LES CONSOMMABLES', 'COMPRIMES', 'SIROPS', 'CONSOMMABLES',
+}
 DOSAGE_RE = re.compile(
     r'(\d+[\s,]*(?:mg|ml|g|µg|mcg|%)(?:\s*/\s*[\d,\.]+\s*(?:mg|ml|g)?)?(?:\s*[\w/]+)?)',
     re.IGNORECASE,
@@ -216,17 +220,46 @@ def normalize_meg_label(value):
     return ' '.join(str(value or '').split()).strip()
 
 
+def is_meg_footer_row(label):
+    upper = normalize_meg_label(label).upper()
+    if not upper:
+        return False
+    if upper in MEG_FOOTER_EXACT or upper.startswith('A LA DATE'):
+        return True
+    if 'STOCK TOTAL' in upper or 'EVALUE' in upper.replace('É', 'E'):
+        return True
+    return False
+
+
 def is_meg_section_row(row):
     label = normalize_meg_label(row[0] if row else None)
     if not label or len(label) < 3:
         return False
     upper = label.upper()
-    if upper.startswith('A LA DATE'):
+    if is_meg_footer_row(label):
         return False
+    if upper in MEG_KNOWN_SECTIONS:
+        return True
     if any(skip in upper for skip in MEG_SKIP_LABELS):
         return False
-    has_product_data = any(row[i] not in (None, '') for i in (1, 2, 7, 8, 10, 11) if i < len(row))
-    return not has_product_data
+
+    expiry = row[1] if len(row) > 1 else None
+    if expiry is not None:
+        return False
+    if DOSAGE_RE.search(label):
+        return False
+
+    has_product_data = any(
+        row[i] not in (None, '', 0)
+        for i in (2, 7, 8, 10, 11)
+        if i < len(row)
+    )
+    if has_product_data:
+        return False
+
+    if label.isupper() and len(label.split()) <= 5:
+        return True
+    return False
 
 
 def is_meg_format_rows(rows):
@@ -271,7 +304,7 @@ def parse_meg_row(row, current_category, category_cache, stats):
     pack_size = row[2] if len(row) > 2 else None
     stock_phar = parse_int(row[5], 0) if len(row) > 5 else 0
     stock_detail = parse_int(row[6], 0) if len(row) > 6 else 0
-    stock_quantity = stock_phar if stock_phar > 0 else stock_detail
+    stock_quantity = max(stock_phar, stock_detail)
 
     purchase_price = resolve_unit_price(
         row[8] if len(row) > 8 else None,
@@ -326,8 +359,7 @@ def parse_meg_sheet_rows(rows):
         if not label:
             continue
 
-        upper = label.upper()
-        if upper in MEG_FOOTER_EXACT or upper.startswith('A LA DATE'):
+        if is_meg_footer_row(label):
             continue
 
         if is_meg_section_row(row):
@@ -347,16 +379,47 @@ def load_xlsx_workbook(file_obj):
     return load_workbook(file_obj, read_only=True, data_only=True)
 
 
-def parse_meg_xlsx_rows(file_obj):
+def list_xlsx_sheet_names(file_obj):
     workbook = load_xlsx_workbook(file_obj)
-    sheet = workbook[workbook.sheetnames[-1]]
-    rows = [list(row) for row in sheet.iter_rows(values_only=True)]
-    sheet_name = sheet.title
+    names = list(workbook.sheetnames)
     workbook.close()
+    if hasattr(file_obj, 'seek'):
+        file_obj.seek(0)
+    return names
+
+
+def get_xlsx_sheet_rows(file_obj, sheet_name):
+    workbook = load_xlsx_workbook(file_obj)
+    if sheet_name not in workbook.sheetnames:
+        workbook.close()
+        raise ValueError(f'Feuille « {sheet_name} » introuvable.')
+    sheet = workbook[sheet_name]
+    rows = [list(row) for row in sheet.iter_rows(values_only=True)]
+    workbook.close()
+    if hasattr(file_obj, 'seek'):
+        file_obj.seek(0)
+    return rows
+
+
+def resolve_meg_sheet(file_obj, sheet_name=None):
+    if sheet_name:
+        rows = get_xlsx_sheet_rows(file_obj, sheet_name)
+        if not is_meg_format_rows(rows):
+            raise ValueError(f'La feuille « {sheet_name} » n\'est pas un inventaire MEG/CHP.')
+        return sheet_name, rows
+
+    for name in reversed(list_xlsx_sheet_names(file_obj)):
+        rows = get_xlsx_sheet_rows(file_obj, name)
+        if is_meg_format_rows(rows):
+            return name, rows
+
+    raise ValueError('Aucune feuille inventaire MEG/CHP trouvée dans le fichier.')
+
+
+def parse_meg_xlsx_rows(file_obj, sheet_name=None):
+    sheet_name, rows = resolve_meg_sheet(file_obj, sheet_name)
     if not rows:
         raise ValueError('Le fichier Excel est vide.')
-    if not is_meg_format_rows(rows):
-        raise ValueError('Format inventaire MEG/CHP non détecté.')
     return sheet_name, parse_meg_sheet_rows(rows)
 
 
@@ -392,8 +455,8 @@ def upsert_medication(payload, update_existing, results):
             results['created'] += 1
 
 
-def import_meg_format(file_obj, filename, update_existing=True):
-    sheet_name, parsed_rows = parse_meg_xlsx_rows(file_obj)
+def import_meg_format(file_obj, filename, update_existing=True, sheet_name=None):
+    sheet_name, parsed_rows = parse_meg_xlsx_rows(file_obj, sheet_name=sheet_name)
     results = {
         'created': 0,
         'updated': 0,
@@ -437,14 +500,80 @@ def resolve_category(name, cache, stats):
     return category
 
 
-def peek_xlsx_rows(file_obj):
-    workbook = load_xlsx_workbook(file_obj)
-    sheet = workbook[workbook.sheetnames[-1]]
-    rows = [list(row) for row in sheet.iter_rows(values_only=True)]
-    sheet_name = sheet.title
-    workbook.close()
-    file_obj.seek(0)
-    return sheet_name, rows
+def peek_xlsx_rows(file_obj, sheet_name=None):
+    if sheet_name:
+        rows = get_xlsx_sheet_rows(file_obj, sheet_name)
+        return sheet_name, rows
+    name, rows = resolve_meg_sheet(file_obj)
+    return name, rows
+
+
+def preview_medications_import(file_obj, filename, sheet_name=None):
+    ext = filename.rsplit('.', 1)[-1].lower() if filename and '.' in filename else ''
+    if ext == 'xlsx':
+        sheets = list_xlsx_sheet_names(file_obj)
+        try:
+            active_sheet, rows = resolve_meg_sheet(file_obj, sheet_name)
+            parsed = parse_meg_sheet_rows(rows)
+            categories = sorted({cat for _, _, cat in parsed})
+            sample = []
+            for line_no, row, cat in parsed[:5]:
+                name, dosage = split_name_dosage(normalize_meg_label(row[0]))
+                sample.append({
+                    'line': line_no,
+                    'name': name,
+                    'dosage': dosage,
+                    'category': cat,
+                })
+            return {
+                'format': 'meg_chp_inventaire',
+                'sheets': sheets,
+                'sheet': active_sheet,
+                'estimated_rows': len(parsed),
+                'categories': categories,
+                'sample': sample,
+            }
+        except ValueError:
+            if hasattr(file_obj, 'seek'):
+                file_obj.seek(0)
+            active = sheet_name or sheets[0]
+            rows = get_xlsx_sheet_rows(file_obj, active)
+            if not rows:
+                raise ValueError('Le fichier Excel est vide.') from None
+            header_map = build_header_map(rows[0])
+            data_rows = rows[1:]
+            return {
+                'format': 'standard',
+                'sheets': sheets,
+                'sheet': active,
+                'estimated_rows': sum(
+                    1 for row in data_rows
+                    if row and not all(str(cell or '').strip() == '' for cell in row)
+                ),
+                'categories': [],
+                'sample': [],
+                'missing_columns': [
+                    f for f in REQUIRED_FIELDS if f not in header_map
+                ],
+            }
+
+    if ext == 'csv':
+        header_map, data_rows = parse_csv_rows(file_obj)
+        if hasattr(file_obj, 'seek'):
+            file_obj.seek(0)
+        return {
+            'format': 'standard',
+            'sheets': [],
+            'sheet': None,
+            'estimated_rows': sum(
+                1 for row in data_rows
+                if row and not all(str(cell or '').strip() == '' for cell in row)
+            ),
+            'categories': [],
+            'sample': [],
+        }
+
+    raise ValueError('Format non supporté. Utilisez .xlsx ou .csv.')
 
 
 def parse_csv_rows(file_obj):
@@ -563,12 +692,24 @@ def import_standard_format(file_obj, filename, update_existing=True):
     return results
 
 
-def import_medications_from_file(file_obj, filename, update_existing=True):
+def import_medications_from_file(file_obj, filename, update_existing=True, sheet_name=None):
     ext = filename.rsplit('.', 1)[-1].lower() if filename and '.' in filename else ''
     if ext == 'xlsx':
-        _, rows = peek_xlsx_rows(file_obj)
-        if is_meg_format_rows(rows):
-            return import_meg_format(file_obj, filename, update_existing=update_existing)
+        try:
+            _, rows = resolve_meg_sheet(file_obj, sheet_name)
+            if is_meg_format_rows(rows):
+                if hasattr(file_obj, 'seek'):
+                    file_obj.seek(0)
+                return import_meg_format(
+                    file_obj, filename,
+                    update_existing=update_existing,
+                    sheet_name=sheet_name,
+                )
+        except ValueError:
+            if hasattr(file_obj, 'seek'):
+                file_obj.seek(0)
+    if hasattr(file_obj, 'seek'):
+        file_obj.seek(0)
     return import_standard_format(file_obj, filename, update_existing=update_existing)
 
 

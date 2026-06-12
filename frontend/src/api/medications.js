@@ -11,10 +11,18 @@ export const createCategory = (data) => api.post('categories/', data);
 export const updateCategory = (id, data) => api.patch(`categories/${id}/`, data);
 export const deleteCategory = (id) => api.delete(`categories/${id}/`);
 
-export const importMedications = (file, updateExisting = true) => {
+export const previewImport = (file, sheet = '') => {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (sheet) formData.append('sheet', sheet);
+  return api.post('medications/preview-import/', formData);
+};
+
+export const importMedications = (file, updateExisting = true, sheet = '') => {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('update_existing', updateExisting ? 'true' : 'false');
+  if (sheet) formData.append('sheet', sheet);
   return api.post('medications/bulk-import/', formData);
 };
 

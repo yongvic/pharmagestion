@@ -55,6 +55,10 @@ skills/
 .cursor/
 agent-transcripts/
 
+# ── Données locales (inventaires Excel) ──
+*.xlsx
+*.xls
+
 # ── Fichiers temporaires ──
 *.tmp
 *.temp

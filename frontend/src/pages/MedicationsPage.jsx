@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Filter, FileEdit, Trash2, ChevronLeft, ChevronRight, Save, Barcode, Loader2, AlertCircle, Upload, Download, FileSpreadsheet } from 'lucide-react';
-import { getMedications, createMedication, updateMedication, deleteMedication, getCategories, createCategory, importMedications, downloadImportTemplate } from '../api/medications';
+import { Plus, Search, Filter, FileEdit, Trash2, ChevronLeft, ChevronRight, Save, Barcode, Loader2, AlertCircle, Upload, Download, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
+import { getMedications, createMedication, updateMedication, deleteMedication, getCategories, createCategory, importMedications, previewImport, downloadImportTemplate } from '../api/medications';
 import { Card, Button, DoubleBezel, Modal, Input, cn } from '../components/UI';
 import { useToast, getErrorMessage } from '../components/Toast';
 import useAuthStore from '../store/useAuthStore';
@@ -15,6 +15,9 @@ const emptyForm = {
 };
 
 const emptyCategoryForm = { name: '', description: '' };
+
+const ACCEPTED_IMPORT = '.csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv';
+const MAX_IMPORT_SIZE = 15 * 1024 * 1024;
 
 const MedicationsPage = () => {
   const { isAdmin } = useAuthStore();
@@ -37,8 +40,12 @@ const MedicationsPage = () => {
   const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
+  const [selectedSheet, setSelectedSheet] = useState('');
   const [updateExisting, setUpdateExisting] = useState(true);
   const [importResult, setImportResult] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -89,27 +96,75 @@ const MedicationsPage = () => {
     onError: (err) => toast(getErrorMessage(err), 'error'),
   });
 
+  const previewMutation = useMutation({
+    mutationFn: ({ file, sheet }) => previewImport(file, sheet),
+    onSuccess: (res) => {
+      setImportPreview(res.data);
+      setSelectedSheet(res.data.sheet || '');
+    },
+    onError: (err) => {
+      setImportPreview(null);
+      toast(getErrorMessage(err), 'error');
+    },
+  });
+
   const importMutation = useMutation({
-    mutationFn: () => importMedications(importFile, updateExisting),
+    mutationFn: () => importMedications(importFile, updateExisting, selectedSheet),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['medications'] });
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       setImportResult(res.data);
-      setImportFile(null);
-      const { created, updated, skipped, categories_created: categoriesCreated } = res.data;
+      const { created, updated, categories_created: categoriesCreated } = res.data;
       toast(
-        `${created} créé(s), ${updated} mis à jour${categoriesCreated ? `, ${categoriesCreated} catégorie(s) créée(s)` : ''}.`,
+        `${created} produit(s) ajouté(s), ${updated} mis à jour${categoriesCreated ? `, ${categoriesCreated} catégorie(s)` : ''}.`,
         'success',
       );
     },
     onError: (err) => toast(getErrorMessage(err), 'error'),
   });
 
+  const validateImportFile = (file) => {
+    if (!file) return 'Aucun fichier sélectionné.';
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['csv', 'xlsx'].includes(ext)) return 'Format accepté : .xlsx ou .csv uniquement.';
+    if (file.size > MAX_IMPORT_SIZE) return 'Fichier trop volumineux (max 15 Mo).';
+    return null;
+  };
+
+  const handleImportFile = useCallback((file) => {
+    const error = validateImportFile(file);
+    if (error) {
+      toast(error, 'error');
+      return;
+    }
+    setImportFile(file);
+    setImportResult(null);
+    setImportPreview(null);
+    setSelectedSheet('');
+    previewMutation.mutate({ file, sheet: '' });
+  }, [previewMutation, toast]);
+
   const openImport = () => {
     setImportFile(null);
+    setImportPreview(null);
     setImportResult(null);
+    setSelectedSheet('');
     setUpdateExisting(true);
     setShowImportModal(true);
+  };
+
+  const onSheetChange = (sheet) => {
+    setSelectedSheet(sheet);
+    if (importFile) {
+      previewMutation.mutate({ file: importFile, sheet });
+    }
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleImportFile(file);
   };
 
   const openCreate = () => { setEditing(null); setFormData(emptyForm); setShowModal(true); };
@@ -309,97 +364,148 @@ const MedicationsPage = () => {
       <Modal open={showImportModal} onClose={() => setShowImportModal(false)} title="Importer des médicaments" size="lg">
         <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
           <div className="rounded-xl border border-pharmacy-100 bg-pharmacy-50/50 p-4 space-y-2">
-            <p className="text-sm font-semibold text-pharmacy-800">Classification par catégorie</p>
+            <p className="text-sm font-semibold text-pharmacy-800">Fichiers supportés</p>
             <p className="text-sm text-slate-600">
-              Chaque produit doit avoir une <strong>catégorie</strong> (colonne <code className="text-xs bg-white px-1 rounded">categorie</code> obligatoire).
-              Les fichiers inventaire hôpital <strong>MEG / CHP / NTG</strong> sont reconnus automatiquement
-              (colonnes DESIGATTION, PEREMP., CDMT — catégories LES COMPRIMES, INJECTABLES, etc.).
+              <strong>Excel inventaire MEG/CHP/NTG</strong> (DESIGATTION, PEREMP., sections catégories) ou
+              <strong> modèle PharmaGestion</strong> (.xlsx / .csv avec colonne <code className="text-xs bg-white px-1 rounded">categorie</code>).
+              Pour les fichiers multi-feuilles, la dernière feuille mensuelle est sélectionnée automatiquement.
             </p>
-            {categories.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {categories.map((c) => (
-                  <span key={c.id} className="px-2 py-0.5 bg-white border border-pharmacy-100 rounded-full text-[11px] font-medium text-pharmacy-700">
-                    {c.name}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" icon={Download} onClick={() => downloadImportTemplate('xlsx')}>
-              Modèle Excel
-            </Button>
-            <Button variant="outline" icon={Download} onClick={() => downloadImportTemplate('csv')}>
-              Modèle CSV
-            </Button>
+            <Button variant="outline" icon={Download} onClick={() => downloadImportTemplate('xlsx')}>Modèle Excel</Button>
+            <Button variant="outline" icon={Download} onClick={() => downloadImportTemplate('csv')}>Modèle CSV</Button>
           </div>
 
-          <label className="block cursor-pointer">
-            <div className={cn(
-              'border-2 border-dashed rounded-2xl p-8 text-center transition-colors',
-              importFile ? 'border-pharmacy-300 bg-pharmacy-50/40' : 'border-slate-200 hover:border-pharmacy-200 hover:bg-slate-50',
-            )}>
-              <FileSpreadsheet className="mx-auto text-pharmacy-500 mb-3" size={36} />
-              {importFile ? (
-                <>
-                  <p className="font-semibold text-slate-800">{importFile.name}</p>
-                  <p className="text-xs text-slate-500 mt-1">Cliquez pour changer de fichier</p>
-                </>
-              ) : (
-                <>
-                  <p className="font-semibold text-slate-700">Glissez ou cliquez pour choisir un fichier</p>
-                  <p className="text-xs text-slate-400 mt-1">.xlsx ou .csv</p>
-                </>
-              )}
+          <div
+            role="button"
+            tabIndex={0}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+            className={cn(
+              'border-2 border-dashed rounded-2xl p-8 text-center transition-colors cursor-pointer',
+              dragOver ? 'border-pharmacy-400 bg-pharmacy-50' : importFile ? 'border-pharmacy-300 bg-pharmacy-50/40' : 'border-slate-200 hover:border-pharmacy-200 hover:bg-slate-50',
+            )}
+          >
+            <FileSpreadsheet className="mx-auto text-pharmacy-500 mb-3" size={36} />
+            {importFile ? (
+              <>
+                <p className="font-semibold text-slate-800">{importFile.name}</p>
+                <p className="text-xs text-slate-500 mt-1">{(importFile.size / 1024 / 1024).toFixed(2)} Mo — cliquez ou glissez pour changer</p>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold text-slate-700">Glissez votre fichier Excel ici</p>
+                <p className="text-xs text-slate-400 mt-1">ou cliquez pour parcourir (.xlsx, .csv — max 15 Mo)</p>
+              </>
+            )}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_IMPORT}
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportFile(file);
+              e.target.value = '';
+            }}
+          />
+
+          {previewMutation.isPending && (
+            <div className="flex items-center gap-2 text-sm text-slate-500 justify-center py-2">
+              <Loader2 className="animate-spin" size={18} /> Analyse du fichier...
             </div>
-            <input
-              type="file"
-              accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-              className="hidden"
-              onChange={(e) => { setImportFile(e.target.files?.[0] || null); setImportResult(null); }}
-            />
-          </label>
+          )}
+
+          {importPreview && !previewMutation.isPending && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="text-emerald-600 shrink-0 mt-0.5" size={18} />
+                <div className="flex-1 space-y-2">
+                  <p className="text-sm font-semibold text-emerald-800">
+                    {importPreview.format === 'meg_chp_inventaire'
+                      ? 'Inventaire hôpital MEG/CHP détecté'
+                      : 'Modèle PharmaGestion détecté'}
+                  </p>
+                  <p className="text-sm text-emerald-700">
+                    <strong>{importPreview.estimated_rows}</strong> produit(s) prêt(s) à importer
+                  </p>
+                  {importPreview.sheets?.length > 1 && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Feuille Excel</label>
+                      <select
+                        value={selectedSheet}
+                        onChange={(e) => onSheetChange(e.target.value)}
+                        className="input-field cursor-pointer w-full max-w-xs"
+                      >
+                        {importPreview.sheets.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {importPreview.missing_columns?.length > 0 && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Colonnes manquantes : {importPreview.missing_columns.join(', ')}
+                    </p>
+                  )}
+                  {importPreview.categories?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {importPreview.categories.map((c) => (
+                        <span key={c} className="px-2 py-0.5 bg-white border border-emerald-200 rounded-full text-[11px] font-medium text-emerald-800">{c}</span>
+                      ))}
+                    </div>
+                  )}
+                  {importPreview.sample?.length > 0 && (
+                    <div className="text-xs text-slate-600 space-y-1 pt-1 border-t border-emerald-200/60">
+                      <p className="font-bold uppercase text-slate-400">Aperçu</p>
+                      {importPreview.sample.map((row) => (
+                        <p key={row.line}>{row.name}{row.dosage ? ` — ${row.dosage}` : ''} · {row.category}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
-            <input
-              type="checkbox"
-              checked={updateExisting}
-              onChange={(e) => setUpdateExisting(e.target.checked)}
-            />
-            Mettre à jour si le code-barres existe déjà
+            <input type="checkbox" checked={updateExisting} onChange={(e) => setUpdateExisting(e.target.checked)} />
+            Mettre à jour les produits existants (même nom + dosage)
           </label>
 
           <Button
             className="w-full"
             icon={importMutation.isPending ? Loader2 : Upload}
             onClick={() => importMutation.mutate()}
-            disabled={!importFile || importMutation.isPending}
+            disabled={!importFile || !importPreview || importMutation.isPending || previewMutation.isPending}
           >
-            {importMutation.isPending ? 'Import en cours...' : 'Lancer l\'import'}
+            {importMutation.isPending ? 'Import en cours...' : `Importer ${importPreview?.estimated_rows ?? ''} produit(s)`}
           </Button>
 
           {importResult && (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
               {importResult.format === 'meg_chp_inventaire' && (
                 <p className="text-xs font-semibold text-pharmacy-700 bg-pharmacy-50 border border-pharmacy-100 rounded-lg px-3 py-2">
-                  Format inventaire MEG/CHP détecté — feuille importée : <strong>{importResult.sheet}</strong>
+                  Feuille importée : <strong>{importResult.sheet}</strong>
                 </p>
               )}
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
                 <div><p className="text-2xl font-black text-emerald-600">{importResult.created}</p><p className="text-xs text-slate-500">Créés</p></div>
                 <div><p className="text-2xl font-black text-pharmacy-600">{importResult.updated}</p><p className="text-xs text-slate-500">Mis à jour</p></div>
-                <div><p className="text-2xl font-black text-indigo-600">{importResult.categories_created ?? 0}</p><p className="text-xs text-slate-500">Catégories créées</p></div>
+                <div><p className="text-2xl font-black text-indigo-600">{importResult.categories_created ?? 0}</p><p className="text-xs text-slate-500">Catégories</p></div>
                 <div><p className="text-2xl font-black text-amber-600">{importResult.skipped}</p><p className="text-xs text-slate-500">Ignorés</p></div>
-                <div><p className="text-2xl font-black text-slate-700">{importResult.total_rows}</p><p className="text-xs text-slate-500">Lignes traitées</p></div>
+                <div><p className="text-2xl font-black text-slate-700">{importResult.total_rows}</p><p className="text-xs text-slate-500">Lignes</p></div>
               </div>
               {importResult.errors?.length > 0 && (
                 <div className="max-h-40 overflow-y-auto space-y-1">
                   <p className="text-xs font-bold text-red-600 uppercase">Erreurs ({importResult.errors.length})</p>
                   {importResult.errors.map((err) => (
-                    <p key={`${err.line}-${err.message}`} className="text-xs text-red-600">
-                      Ligne {err.line} : {err.message}
-                    </p>
+                    <p key={`${err.line}-${err.message}`} className="text-xs text-red-600">Ligne {err.line} : {err.message}</p>
                   ))}
                 </div>
               )}

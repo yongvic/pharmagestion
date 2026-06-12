@@ -10,7 +10,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 from users.permissions import IsAdminOrReadOnly, IsStaffRole
 from .models import Category, Medication
 from .serializers import CategorySerializer, MedicationSerializer
-from .import_service import import_medications_from_file, build_template_csv, build_template_xlsx
+from .import_service import (
+    import_medications_from_file,
+    preview_medications_import,
+    build_template_csv,
+    build_template_xlsx,
+)
 
 
 class MedicationFilter(django_filters.FilterSet):
@@ -59,7 +64,7 @@ class MedicationViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name', 'selling_price', 'stock_quantity', 'expiry_date']
 
     def get_permissions(self):
-        if self.action in ('create', 'update', 'partial_update', 'destroy', 'import_medications', 'import_template'):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'import_medications', 'preview_import', 'import_template'):
             return [IsAdminOrReadOnly()]
         return [IsStaffRole()]
 
@@ -75,13 +80,39 @@ class MedicationViewSet(viewsets.ModelViewSet):
             raise ValidationError({'file': 'Aucun fichier fourni.'})
 
         update_existing = str(request.data.get('update_existing', 'true')).lower() in ('1', 'true', 'yes', 'on')
+        sheet_name = request.data.get('sheet') or None
 
         try:
-            results = import_medications_from_file(upload, upload.name, update_existing=update_existing)
+            results = import_medications_from_file(
+                upload,
+                upload.name,
+                update_existing=update_existing,
+                sheet_name=sheet_name,
+            )
         except ValueError as exc:
             raise ValidationError({'detail': str(exc)}) from exc
 
         return Response(results, status=status.HTTP_200_OK)
+
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='preview-import',
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def preview_import(self, request):
+        upload = request.FILES.get('file')
+        if not upload:
+            raise ValidationError({'file': 'Aucun fichier fourni.'})
+
+        sheet_name = request.data.get('sheet') or None
+
+        try:
+            preview = preview_medications_import(upload, upload.name, sheet_name=sheet_name)
+        except ValueError as exc:
+            raise ValidationError({'detail': str(exc)}) from exc
+
+        return Response(preview, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='download-template')
     def import_template(self, request):
